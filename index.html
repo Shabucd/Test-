@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NASA POWER Data Extractor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#17212b; --panel2:#1d2a36; --border:#2a3a48;
+    --text:#e8edf2; --muted:#93a4b3; --accent:#4fb0ff; --accent2:#2e8b57;
+    --warn:#e0a63c; --danger:#e05c5c;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:linear-gradient(160deg,#0b1218,#101b24 60%,#0b1218);
+    color:var(--text); min-height:100vh; padding:24px;
+  }
+  .wrap{max-width:1100px; margin:0 auto;}
+  header{margin-bottom:22px;}
+  header h1{font-size:1.5rem; margin:0 0 4px;}
+  header p{color:var(--muted); margin:0; font-size:0.92rem;}
+  .grid{display:grid; grid-template-columns: 1fr 1fr; gap:16px;}
+  @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:18px 20px; margin-bottom:16px;
+  }
+  .card h2{font-size:0.95rem; margin:0 0 12px; color:var(--accent); letter-spacing:.02em; text-transform:uppercase;}
+  label{display:block; font-size:0.82rem; color:var(--muted); margin:10px 0 4px;}
+  label:first-child{margin-top:0;}
+  input[type=text], input[type=number], input[type=date], select{
+    width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text); font-size:0.92rem; outline:none;
+  }
+  input:focus, select:focus{border-color:var(--accent);}
+  .row{display:flex; gap:10px;}
+  .row > div{flex:1;}
+  .geosearch{display:flex; gap:8px; margin-top:6px;}
+  .geosearch input{flex:1;}
+  button{
+    cursor:pointer; border:none; border-radius:8px; padding:9px 16px;
+    font-size:0.88rem; font-weight:600; transition:transform .05s, opacity .15s;
+  }
+  button:active{transform:scale(0.97);}
+  .btn-accent{background:var(--accent); color:#06131f;}
+  .btn-ghost{background:var(--panel2); color:var(--text); border:1px solid var(--border);}
+  .btn-accent:disabled{opacity:0.5; cursor:not-allowed;}
+  #geoResults{margin-top:8px; font-size:0.82rem;}
+  #geoResults div{
+    padding:6px 8px; border-radius:6px; cursor:pointer; color:var(--muted);
+  }
+  #geoResults div:hover{background:var(--panel2); color:var(--text);}
+  .param-groups{display:grid; grid-template-columns: repeat(2,1fr); gap:10px 18px;}
+  @media (max-width:760px){ .param-groups{grid-template-columns:1fr;} }
+  .pgroup{border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--panel2);}
+  .pgroup h3{font-size:0.78rem; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;}
+  .pitem{display:flex; align-items:center; gap:7px; font-size:0.86rem; padding:3px 0;}
+  .pitem input{width:auto; margin:0;}
+  .pitem label{margin:0; font-size:0.86rem; color:var(--text); cursor:pointer;}
+  .actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  #status{font-size:0.85rem; color:var(--muted); margin-left:4px;}
+  #status.err{color:var(--danger);}
+  #status.ok{color:var(--accent2);}
+  .hidden{display:none !important;}
+  .result-head{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
+  .result-head h2{margin:0;}
+  table{width:100%; border-collapse:collapse; font-size:0.8rem; margin-top:10px;}
+  th,td{padding:6px 8px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap;}
+  th:first-child, td:first-child{text-align:left; position:sticky; left:0; background:var(--panel);}
+  thead th{color:var(--accent); position:sticky; top:0; background:var(--panel); z-index:2;}
+  .table-scroll{max-height:360px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:8px;}
+  canvas{max-height:340px;}
+  .meta{font-size:0.78rem; color:var(--muted); margin-top:6px;}
+  footer{color:var(--muted); font-size:0.75rem; text-align:center; margin-top:28px; padding-bottom:10px;}
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>NASA POWER Data Extractor</h1>
+    <p>Pull agrometeorological time series from NASA POWER for any point on Earth — temperature, precipitation, solar radiation, wind, humidity.</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Location</h2>
+      <div class="geosearch">
+        <input type="text" id="placeSearch" placeholder="Search a place, e.g. Davis, California">
+        <button class="btn-ghost" id="searchBtn">Search</button>
+      </div>
+      <div id="geoResults"></div>
+      <div class="row">
+        <div>
+          <label for="lat">Latitude</label>
+          <input type="number" id="lat" step="0.0001" placeholder="38.5382" min="-90" max="90">
+        </div>
+        <div>
+          <label for="lon">Longitude</label>
+          <input type="number" id="lon" step="0.0001" placeholder="-121.7617" min="-180" max="180">
+        </div>
+      </div>
+      <label for="elev">Elevation override (m, optional)</label>
+      <input type="number" id="elev" placeholder="auto from NASA POWER">
+    </div>
+
+    <div class="card">
+      <h2>Time &amp; Resolution</h2>
+      <div class="row">
+        <div>
+          <label for="startDate">Start date</label>
+          <input type="date" id="startDate" value="2023-01-01">
+        </div>
+        <div>
+          <label for="endDate">End date</label>
+          <input type="date" id="endDate" value="2023-12-31">
+        </div>
+      </div>
+      <label for="temporal">Temporal resolution</label>
+      <select id="temporal">
+        <option value="daily" selected>Daily</option>
+        <option value="monthly">Monthly</option>
+        <option value="climatology">Climatology (30-yr monthly avg)</option>
+      </select>
+      <label for="community">Community (parameter set context)</label>
+      <select id="community">
+        <option value="AG" selected>AG — Agroclimatology</option>
+        <option value="RE">RE — Renewable Energy</option>
+        <option value="SB">SB — Sustainable Buildings</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Parameters</h2>
+    <div class="param-groups" id="paramGroups">
+      <div class="pgroup">
+        <h3>Temperature</h3>
+        <div class="pitem"><input type="checkbox" id="p_T2M" value="T2M" checked><label for="p_T2M">T2M — Air temp @2m (°C)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_T2M_MAX" value="T2M_MAX"><label for="p_T2M_MAX">T2M_MAX — Max temp @2m (°C)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_T2M_MIN" value="T2M_MIN"><label for="p_T2M_MIN">T2M_MIN — Min temp @2m (°C)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_TS" value="TS"><label for="p_TS">TS — Earth skin temp (°C)</label></div>
+      </div>
+      <div class="pgroup">
+        <h3>Water / Humidity</h3>
+        <div class="pitem"><input type="checkbox" id="p_PRECTOTCORR" value="PRECTOTCORR" checked><label for="p_PRECTOTCORR">PRECTOTCORR — Precipitation (mm/day)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_RH2M" value="RH2M"><label for="p_RH2M">RH2M — Relative humidity @2m (%)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_QV2M" value="QV2M"><label for="p_QV2M">QV2M — Specific humidity @2m (g/kg)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_EVPTRNS" value="EVPTRNS"><label for="p_EVPTRNS">EVPTRNS — Evapotranspiration energy flux</label></div>
+      </div>
+      <div class="pgroup">
+        <h3>Solar / Radiation</h3>
+        <div class="pitem"><input type="checkbox" id="p_ALLSKY_SFC_SW_DWN" value="ALLSKY_SFC_SW_DWN" checked><label for="p_ALLSKY_SFC_SW_DWN">ALLSKY_SFC_SW_DWN — Solar irradiance (kWh/m²/day)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_CLRSKY_SFC_SW_DWN" value="CLRSKY_SFC_SW_DWN"><label for="p_CLRSKY_SFC_SW_DWN">CLRSKY_SFC_SW_DWN — Clear-sky irradiance</label></div>
+        <div class="pitem"><input type="checkbox" id="p_ALLSKY_SFC_PAR_TOT" value="ALLSKY_SFC_PAR_TOT"><label for="p_ALLSKY_SFC_PAR_TOT">ALLSKY_SFC_PAR_TOT — PAR total</label></div>
+        <div class="pitem"><input type="checkbox" id="p_ALLSKY_SRF_ALB" value="ALLSKY_SRF_ALB"><label for="p_ALLSKY_SRF_ALB">ALLSKY_SRF_ALB — Surface albedo</label></div>
+      </div>
+      <div class="pgroup">
+        <h3>Wind &amp; Pressure</h3>
+        <div class="pitem"><input type="checkbox" id="p_WS2M" value="WS2M" checked><label for="p_WS2M">WS2M — Wind speed @2m (m/s)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_WS10M" value="WS10M"><label for="p_WS10M">WS10M — Wind speed @10m (m/s)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_PS" value="PS"><label for="p_PS">PS — Surface pressure (kPa)</label></div>
+        <div class="pitem"><input type="checkbox" id="p_WD2M" value="WD2M"><label for="p_WD2M">WD2M — Wind direction @2m (°)</label></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="actions">
+      <button class="btn-accent" id="fetchBtn">Fetch data</button>
+      <button class="btn-ghost hidden" id="csvBtn">Download CSV</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="card hidden" id="resultsCard">
+    <div class="result-head">
+      <h2>Results</h2>
+      <span class="meta" id="resultMeta"></span>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="table-scroll">
+      <table id="dataTable"></table>
+    </div>
+  </div>
+
+  <footer>
+    Data source: <a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">NASA POWER (Prediction Of Worldwide Energy Resources)</a>, NASA Langley Research Center. Geocoding via OpenStreetMap Nominatim.
+  </footer>
+</div>
+
+<script>
+const statusEl = document.getElementById('status');
+let chartInstance = null;
+let lastRows = null, lastHeaders = null;
+
+function setStatus(msg, kind){
+  statusEl.textContent = msg || '';
+  statusEl.className = kind || '';
+}
+
+// ---- Geocoding (Nominatim) ----
+document.getElementById('searchBtn').addEventListener('click', doGeoSearch);
+document.getElementById('placeSearch').addEventListener('keydown', e=>{
+  if(e.key === 'Enter'){ e.preventDefault(); doGeoSearch(); }
+});
+
+async function doGeoSearch(){
+  const q = document.getElementById('placeSearch').value.trim();
+  const resultsEl = document.getElementById('geoResults');
+  resultsEl.innerHTML = '';
+  if(!q) return;
+  setStatus('Searching location…');
+  try{
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if(!res.ok) throw new Error('Geocoding request failed (' + res.status + ')');
+    const data = await res.json();
+    if(!data.length){
+      resultsEl.innerHTML = '<div style="color:var(--warn)">No matches found.</div>';
+      setStatus('');
+      return;
+    }
+    data.forEach(item=>{
+      const div = document.createElement('div');
+      div.textContent = item.display_name;
+      div.addEventListener('click', ()=>{
+        document.getElementById('lat').value = parseFloat(item.lat).toFixed(4);
+        document.getElementById('lon').value = parseFloat(item.lon).toFixed(4);
+        resultsEl.innerHTML = '';
+        document.getElementById('placeSearch').value = item.display_name;
+        setStatus('Location set.', 'ok');
+      });
+      resultsEl.appendChild(div);
+    });
+    setStatus('');
+  }catch(err){
+    setStatus('Geocoding error: ' + err.message, 'err');
+  }
+}
+
+// ---- Parameter collection ----
+function getSelectedParams(){
+  return Array.from(document.querySelectorAll('#paramGroups input[type=checkbox]:checked')).map(cb=>cb.value);
+}
+
+function dateToYYYYMMDD(dstr){
+  return dstr.replace(/-/g,'');
+}
+
+// ---- Fetch NASA POWER ----
+document.getElementById('fetchBtn').addEventListener('click', fetchPowerData);
+
+async function fetchPowerData(){
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lon = parseFloat(document.getElementById('lon').value);
+  const temporal = document.getElementById('temporal').value;
+  const community = document.getElementById('community').value;
+  const params = getSelectedParams();
+
+  if(isNaN(lat) || isNaN(lon)){
+    setStatus('Enter a valid latitude and longitude (or search a place).', 'err');
+    return;
+  }
+  if(lat < -90 || lat > 90 || lon < -180 || lon > 180){
+    setStatus('Latitude must be -90..90 and longitude -180..180.', 'err');
+    return;
+  }
+  if(params.length === 0){
+    setStatus('Select at least one parameter.', 'err');
+    return;
+  }
+
+  let url;
+  const base = `https://power.larc.nasa.gov/api/temporal/${temporal}/point`;
+  const qp = new URLSearchParams({
+    parameters: params.join(','),
+    community: community,
+    longitude: lon,
+    latitude: lat,
+    format: 'JSON'
+  });
+
+  if(temporal === 'climatology'){
+    url = `${base}?${qp.toString()}`;
+  } else {
+    const startInput = document.getElementById('startDate').value;
+    const endInput = document.getElementById('endDate').value;
+    if(!startInput || !endInput){
+      setStatus('Select a start and end date.', 'err');
+      return;
+    }
+    if(new Date(startInput) > new Date(endInput)){
+      setStatus('Start date must be before end date.', 'err');
+      return;
+    }
+    let start, end;
+    if(temporal === 'monthly'){
+      start = startInput.slice(0,4);
+      end = endInput.slice(0,4);
+    } else {
+      start = dateToYYYYMMDD(startInput);
+      end = dateToYYYYMMDD(endInput);
+    }
+    qp.set('start', start);
+    qp.set('end', end);
+    url = `${base}?${qp.toString()}`;
+  }
+
+  const fetchBtn = document.getElementById('fetchBtn');
+  fetchBtn.disabled = true;
+  setStatus('Fetching data from NASA POWER…');
+  document.getElementById('resultsCard').classList.add('hidden');
+  document.getElementById('csvBtn').classList.add('hidden');
+
+  try{
+    const res = await fetch(url);
+    const body = await res.json();
+    if(!res.ok){
+      const msg = (body && body.messages) ? body.messages.join('; ') : ('HTTP ' + res.status);
+      throw new Error(msg);
+    }
+    if(body.messages && body.messages.length){
+      // non-fatal warnings from POWER API
+      console.warn('NASA POWER messages:', body.messages);
+    }
+    renderResults(body, params, temporal, lat, lon);
+    setStatus('Done — ' + params.length + ' parameter(s) loaded.', 'ok');
+  }catch(err){
+    setStatus('Request failed: ' + err.message, 'err');
+  }finally{
+    fetchBtn.disabled = false;
+  }
+}
+
+// ---- Render table + chart + CSV ----
+function renderResults(body, params, temporal, lat, lon){
+  const props = body.properties && body.properties.parameter;
+  if(!props){ setStatus('No parameter data returned.', 'err'); return; }
+
+  const firstParam = params.find(p => props[p]);
+  if(!firstParam){ setStatus('Requested parameters not found in response.', 'err'); return; }
+
+  const dateKeys = Object.keys(props[firstParam]).sort();
+  const headers = ['date', ...params];
+  const rows = dateKeys.map(dk=>{
+    const row = { date: formatDateKey(dk, temporal) };
+    params.forEach(p=>{
+      const v = props[p] ? props[p][dk] : null;
+      row[p] = (v === -999 || v === undefined) ? null : v;
+    });
+    return row;
+  });
+
+  lastRows = rows;
+  lastHeaders = headers;
+
+  // meta
+  const geo = body.geometry ? body.geometry.coordinates : [lon, lat, null];
+  const metaEl = document.getElementById('resultMeta');
+  metaEl.textContent = `Lat ${lat.toFixed(4)}, Lon ${lon.toFixed(4)}` +
+    (geo[2] != null ? `, elevation ${geo[2].toFixed(0)} m` : '') +
+    ` · ${rows.length} records · ${temporal}`;
+
+  buildTable(headers, rows);
+  buildChart(headers, rows);
+
+  document.getElementById('resultsCard').classList.remove('hidden');
+  const csvBtn = document.getElementById('csvBtn');
+  csvBtn.classList.remove('hidden');
+  csvBtn.onclick = ()=>downloadCSV(headers, rows);
+}
+
+function formatDateKey(dk, temporal){
+  if(temporal === 'daily'){
+    return `${dk.slice(0,4)}-${dk.slice(4,6)}-${dk.slice(6,8)}`;
+  }
+  if(temporal === 'monthly'){
+    // keys like 202301 or 2023, plus annual "13" suffixes sometimes
+    if(dk.length === 6) return `${dk.slice(0,4)}-${dk.slice(4,6)}`;
+    return dk;
+  }
+  // climatology: 01..12, 13 = annual avg
+  const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Annual'];
+  const idx = parseInt(dk, 10);
+  return monthNames[idx] || dk;
+}
+
+function buildTable(headers, rows){
+  const table = document.getElementById('dataTable');
+  table.innerHTML = '';
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  headers.forEach(h=>{
+    const th = document.createElement('th');
+    th.textContent = h;
+    trh.appendChild(th);
+  });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    headers.forEach(h=>{
+      const td = document.createElement('td');
+      td.textContent = (r[h] === null || r[h] === undefined) ? '—' : (typeof r[h]==='number' ? r[h] : r[h]);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+}
+
+function buildChart(headers, rows){
+  const ctx = document.getElementById('chart').getContext('2d');
+  if(chartInstance) chartInstance.destroy();
+  const dataParams = headers.slice(1);
+  const palette = ['#4fb0ff','#2e8b57','#e0a63c','#e05c5c','#b084f7','#49c7c7','#f08cc0','#9ec76a'];
+  const datasets = dataParams.map((p, i)=>({
+    label: p,
+    data: rows.map(r=>r[p]),
+    borderColor: palette[i % palette.length],
+    backgroundColor: palette[i % palette.length] + '33',
+    spanGaps: true,
+    tension: 0.25,
+    pointRadius: rows.length > 60 ? 0 : 2,
+    borderWidth: 2
+  }));
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: { labels: rows.map(r=>r.date), datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#e8edf2' } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { ticks: { color: '#93a4b3', maxTicksLimit: 12 }, grid: { color: '#2a3a48' } },
+        y: { ticks: { color: '#93a4b3' }, grid: { color: '#2a3a48' } }
+      }
+    }
+  });
+}
+
+function downloadCSV(headers, rows){
+  const lines = [headers.join(',')];
+  rows.forEach(r=>{
+    lines.push(headers.map(h=> (r[h] === null || r[h] === undefined) ? '' : r[h]).join(','));
+  });
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `nasa_power_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
